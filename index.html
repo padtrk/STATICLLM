@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>On-Device Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0e10;
+    --surface: #18181c;
+    --surface2: #222228;
+    --border: #2e2e38;
+    --accent: #7c6af7;
+    --accent-dim: #4a3fa0;
+    --accent-glow: rgba(124,106,247,0.15);
+    --text: #e8e8f0;
+    --text-dim: #888898;
+    --text-dimmer: #444458;
+    --user-bg: #1a1a28;
+    --model-bg: #18181c;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #fbbf24;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── Header ── */
+  header {
+    width: 100%;
+    max-width: 680px;
+    padding: 2rem 1.25rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .header-left h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: var(--text);
+  }
+
+  .header-left p {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 0.25rem;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* ── Status pill ── */
+  #status-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-dimmer);
+    transition: background 0.4s;
+  }
+  .dot.loading { background: var(--yellow); animation: pulse 1s infinite; }
+  .dot.ready   { background: var(--green); }
+  .dot.error   { background: var(--red); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── Progress bar ── */
+  #progress-wrap {
+    width: 100%;
+    max-width: 680px;
+    padding: 0.6rem 1.25rem;
+    display: none;
+  }
+  #progress-wrap.visible { display: block; }
+
+  #progress-bar-bg {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  #progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    width: 0%;
+    transition: width 0.3s;
+  }
+  #progress-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dimmer);
+    margin-top: 0.3rem;
+  }
+
+  /* ── Messages ── */
+  #messages {
+    width: 100%;
+    max-width: 680px;
+    flex: 1;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    overflow-y: auto;
+  }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.9rem 1rem;
+    border-radius: 6px;
+    line-height: 1.65;
+    font-size: 0.92rem;
+    animation: fadeIn 0.2s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+
+  .msg.user {
+    background: var(--user-bg);
+    border: 1px solid #25253a;
+    align-self: flex-end;
+    max-width: 88%;
+  }
+
+  .msg.assistant {
+    background: transparent;
+    border: 1px solid transparent;
+    align-self: flex-start;
+    max-width: 100%;
+  }
+
+  .msg-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dimmer);
+    margin-bottom: 0.3rem;
+  }
+
+  .msg.user .msg-role { color: var(--accent-dim); }
+
+  .msg-body { white-space: pre-wrap; word-break: break-word; }
+
+  /* thinking cursor */
+  .cursor {
+    display: inline-block;
+    width: 8px; height: 1em;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 0.9s step-end infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── System note ── */
+  .sys-note {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dimmer);
+    text-align: center;
+    padding: 0.5rem 0;
+  }
+
+  /* ── Input area ── */
+  #input-area {
+    width: 100%;
+    max-width: 680px;
+    padding: 0 1.25rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  #input-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem;
+    transition: border-color 0.2s;
+  }
+  #input-row:focus-within {
+    border-color: var(--accent-dim);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  #user-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 300;
+    resize: none;
+    min-height: 24px;
+    max-height: 160px;
+    line-height: 1.5;
+    padding: 0.2rem 0.3rem;
+  }
+  #user-input::placeholder { color: var(--text-dimmer); }
+
+  #send-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 5px;
+    color: #fff;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.45rem 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  #send-btn:hover:not(:disabled) { background: #9580ff; }
+  #send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  #footer-note {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.63rem;
+    color: var(--text-dimmer);
+    text-align: center;
+  }
+  #footer-note a { color: var(--text-dimmer); text-decoration: underline; }
+
+  /* scrollbar */
+  #messages::-webkit-scrollbar { width: 4px; }
+  #messages::-webkit-scrollbar-track { background: transparent; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>// on-device chat</h1>
+    <p>SmolLM2-360M · runs entirely in your browser · zero API calls</p>
+  </div>
+  <div id="status-pill">
+    <div class="dot loading" id="status-dot"></div>
+    <span id="status-text">loading model…</span>
+  </div>
+</header>
+
+<div id="progress-wrap" class="visible">
+  <div id="progress-bar-bg"><div id="progress-bar-fill"></div></div>
+  <div id="progress-label">fetching model weights…</div>
+</div>
+
+<div id="messages">
+  <div class="sys-note">weights are cached after first load · inference runs on your device</div>
+</div>
+
+<div id="input-area">
+  <div id="input-row">
+    <textarea id="user-input" rows="1" placeholder="type a message…" disabled></textarea>
+    <button id="send-btn" disabled>send</button>
+  </div>
+  <div id="footer-note">
+    powered by <a href="https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct" target="_blank">SmolLM2-360M-Instruct</a>
+    via <a href="https://huggingface.co/docs/transformers.js" target="_blank">Transformers.js</a>
+  </div>
+</div>
+
+<script type="module">
+import { pipeline, TextStreamer } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js';
+
+// ── DOM refs ──
+const statusDot   = document.getElementById('status-dot');
+const statusText  = document.getElementById('status-text');
+const progressWrap = document.getElementById('progress-wrap');
+const progressFill = document.getElementById('progress-bar-fill');
+const progressLabel = document.getElementById('progress-label');
+const messagesEl  = document.getElementById('messages');
+const inputEl     = document.getElementById('user-input');
+const sendBtn     = document.getElementById('send-btn');
+
+// ── State ──
+let pipe = null;
+let history = []; // {role, content}[]
+let generating = false;
+
+// ── Status helpers ──
+function setStatus(state, label) {
+  statusDot.className = 'dot ' + state;
+  statusText.textContent = label;
+}
+
+// ── Auto-resize textarea ──
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+});
+
+// ── Append message to DOM, return body el for streaming ──
+function appendMessage(role, text = '') {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + role;
+
+  const roleLabel = document.createElement('div');
+  roleLabel.className = 'msg-role';
+  roleLabel.textContent = role === 'user' ? 'you' : 'model';
+
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+  body.textContent = text;
+
+  wrap.appendChild(roleLabel);
+  wrap.appendChild(body);
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return body;
+}
+
+// ── Cursor ──
+function addCursor(el) {
+  const c = document.createElement('span');
+  c.className = 'cursor';
+  el.appendChild(c);
+  return c;
+}
+
+// ── Load model ──
+async function loadModel() {
+  setStatus('loading', 'loading model…');
+  try {
+    pipe = await pipeline(
+      'text-generation',
+      'HuggingFaceTB/SmolLM2-360M-Instruct',
+      {
+        dtype: 'q4f16',
+        progress_callback: (p) => {
+          if (p.status === 'downloading' || p.status === 'loading') {
+            const pct = p.progress ? Math.round(p.progress) : 0;
+            progressFill.style.width = pct + '%';
+            progressLabel.textContent =
+              (p.file ? p.file.split('/').pop() : 'weights') +
+              (p.total ? ` — ${(p.loaded/1e6).toFixed(0)}MB / ${(p.total/1e6).toFixed(0)}MB` : '');
+          }
+        }
+      }
+    );
+    progressWrap.classList.remove('visible');
+    setStatus('ready', 'ready');
+    inputEl.disabled = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+    appendMessage('assistant', 'Hello — the model is loaded and running on your device. Ask me anything.');
+  } catch (err) {
+    console.error(err);
+    progressWrap.classList.remove('visible');
+    setStatus('error', 'failed to load');
+    appendMessage('assistant', '⚠ Could not load the model. WebGPU or WASM may not be supported in this browser. Try Chrome 113+ on desktop.');
+  }
+}
+
+// ── Send ──
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || generating || !pipe) return;
+
+  generating = true;
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'stop';
+  sendBtn.onclick = () => { generating = false; }; // basic stop
+
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+
+  appendMessage('user', text);
+  history.push({ role: 'user', content: text });
+
+  const bodyEl = appendMessage('assistant');
+  const cursor = addCursor(bodyEl);
+
+  setStatus('loading', 'generating…');
+
+  let output = '';
+
+  try {
+    const streamer = new TextStreamer(pipe.tokenizer, {
+      skip_prompt: true,
+      skip_special_tokens: true,
+      callback_function: (token) => {
+        if (!generating) return;
+        output += token;
+        bodyEl.textContent = output;
+        bodyEl.appendChild(cursor);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+    });
+
+    await pipe(history, {
+      max_new_tokens: 512,
+      do_sample: true,
+      temperature: 0.7,
+      top_p: 0.9,
+      streamer,
+    });
+  } catch (err) {
+    console.error(err);
+    output = output || '[error during generation]';
+  }
+
+  cursor.remove();
+  bodyEl.textContent = output;
+  history.push({ role: 'assistant', content: output });
+
+  generating = false;
+  sendBtn.disabled = false;
+  sendBtn.textContent = 'send';
+  sendBtn.onclick = send;
+  setStatus('ready', 'ready');
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// ── Events ──
+sendBtn.addEventListener('click', send);
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+
+loadModel();
+</script>
+</body>
+</html>
